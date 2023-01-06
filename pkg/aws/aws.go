@@ -196,57 +196,6 @@ func (c Client) listInstancesWithFilter(filters []*ec2.Filter) ([]*ec2.Instance,
 	return instances, nil
 }
 
-// GetSecurityGroupId will return the security group id needed for the network verifier
-func (c Client) GetSecurityGroupId(infraID string) (*string, error) {
-	in := &ec2.DescribeSecurityGroupsInput{
-		Filters: []*ec2.Filter{
-			{
-				Name:   aws.String("tag:Name"),
-				Values: []*string{aws.String(infraID + "-worker-sg")},
-			},
-		},
-	}
-	out, err := c.Ec2Client.DescribeSecurityGroups(in)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list security group: %w", err)
-	}
-	if out.SecurityGroups != nil && len(out.SecurityGroups) == 1 {
-		return nil, fmt.Errorf("expected securitygroups to have len == 1")
-	}
-	if out.SecurityGroups == nil {
-		return nil, fmt.Errorf("security groups are empty")
-	}
-	res := out.SecurityGroups[0].GroupId
-	fmt.Print(res)
-	return out.SecurityGroups[0].GroupId, nil
-}
-
-// GetSubnetIds will return the private subnets
-func (c Client) GetSubnetIds(infraID string) (*string, error) {
-	if len(c.cluster.AWS().SubnetIDs()) == 0 {
-	in := &ec2.DescribeSubnetsInput{
-		Filters: []*ec2.Filter{
-			{
-				Name:   aws.String(fmt.Sprintf("tag:kubernetes.io/cluster/%s", infraID)),
-				Values: []*string{aws.String("owned")},
-			},
-			{
-				Name:   aws.String("tag-key"),
-				Values: []*string{aws.String("kubernetes.io/role/internal-elb")},
-			},
-		},
-	}
-	out, err := c.Ec2Client.DescribeSubnets(in)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find subnets by tag: kubernetes.io/cluster/%s=owned: %w", infraID, err)
-	}
-	if len(out.Subnets) == 0 {
-		return nil, fmt.Errorf("found 0 subnets with kubernetes.io/cluster/%s=owned and kubernetes.io/role/internal-elb", infraID)
-	}
-	return out.Subnets[0].SubnetId, nil
-}
-
-
 // PollInstanceStopEventsFor will poll the ListAllInstanceStopEvents, and retry on various cases
 // the returned events are unique per instance and are the most up to date that exist
 func (c Client) PollInstanceStopEventsFor(instances []*ec2.Instance, retryTimes int) ([]*cloudtrail.Event, error) {

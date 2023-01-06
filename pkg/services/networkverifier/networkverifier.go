@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/service/ec2"
 	v1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 
@@ -123,8 +125,8 @@ func (c Client) RunNetworkVerifier(externalClusterID string) error {
 		NoTls:      config.noTls,
 	}
 
-	subnets := c.GetSubnetId()
-	for subnet := range subnets{
+	subnets, _ := c.GetSubnetId()
+	for _, subnet := range subnets {
 
 		// setup non cloud config options
 		vei := verifier.ValidateEgressInput{
@@ -164,10 +166,9 @@ func (c Client) RunNetworkVerifier(externalClusterID string) error {
 		}
 		awsVerifier.Logger.Info(context.TODO(), "Success")
 		return nil
+	}
+	return nil
 }
-
-
-
 
 // GetSecurityGroupId will return the security group id needed for the network verifier
 func (c Client) GetSecurityGroupId(infraID string) (*string, error) {
@@ -207,7 +208,7 @@ func (c Client) GetSubnetId(infraID string) ([]string, error) {
 					Values: []*string{aws.String("kubernetes.io/role/internal-elb")},
 				},
 			},
-		}	
+		}
 		out, err := c.Ec2Client.DescribeSubnets(in)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find private subnets for %s: %w", infraID, err)
@@ -215,8 +216,9 @@ func (c Client) GetSubnetId(infraID string) ([]string, error) {
 		if len(out.Subnets) == 0 {
 			return nil, fmt.Errorf("found 0 subnets with kubernetes.io/cluster/%s=owned and kubernetes.io/role/internal-elb", infraID)
 		}
-		return []string {out.Subnets[0].SubnetId}, nil
+		return []string{out.Subnets[0].SubnetId}, nil
 	}
+
 	// For PrivateLink clusters, any provided subnet is considered a private subnet
 	if c.cluster.AWS().PrivateLink() {
 		if len(c.cluster.AWS().SubnetIDs()) == 0 {
@@ -225,13 +227,14 @@ func (c Client) GetSubnetId(infraID string) ([]string, error) {
 		return c.cluster.AWS().SubnetIDs(), nil
 	}
 }
-	// For non-PrivateLink BYOVPC clusters...
-	
-	// in := &ec2.DescribeRouteTablesInput{
-	// 	Filters: []*ec2.Filter{
-	// 		{
-	// 			Name:   aws.String("association.subnet-id"),
-	// 			Values: []*string{aws.String("subnet")},
-	// 		},
-	// 	},
-	//}
+
+// For non-PrivateLink BYOVPC clusters...
+
+// in := &ec2.DescribeRouteTablesInput{
+// 	Filters: []*ec2.Filter{
+// 		{
+// 			Name:   aws.String("association.subnet-id"),
+// 			Values: []*string{aws.String("subnet")},
+// 		},
+// 	},
+//}

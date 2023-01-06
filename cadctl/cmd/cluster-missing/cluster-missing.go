@@ -133,7 +133,7 @@ func run(cmd *cobra.Command, args []string) error {
 	return evaluateMissingCluster(chgmClient, incidentID, externalClusterID, &customerAwsClient, &ocmClient, &pdClient)
 }
 
-func evaluateMissingCluster(chgmClient chgm.Client, incidentID string, externalClusterID string, awsClient *aws.Client, ocmClient *ocm.Client, pdClient *pagerduty.Client) error {
+func evaluateMissingCluster(chgmClient chgm.Client, incidentID string, externalClusterID string, customerAwsClient *aws.Client, ocmClient *ocm.Client, pdClient *pagerduty.Client) error {
 	res, err := chgmClient.InvestigateStoppedInstances(externalClusterID)
 	if err != nil {
 		return fmt.Errorf("InvestigateInstances failed on %s: %w", externalClusterID, err)
@@ -145,11 +145,12 @@ func evaluateMissingCluster(chgmClient chgm.Client, incidentID string, externalC
 		// // TODO: Run network verifier here
 		networkVerifierClient := networkverifier.Client{
 			Service: networkverifier.Provider{
-				AwsClient: *awsClient,
+				AwsClient: *customerAwsClient,
 				OcmClient: *ocmClient,
 				PdClient:  *pdClient,
 			},
 		}
+
 		err := networkVerifierClient.RunNetworkVerifier(externalClusterID)
 
 		if err != nil {
