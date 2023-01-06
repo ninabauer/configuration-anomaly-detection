@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/openshift/configuration-anomaly-detection/pkg/services/ccam"
+	"github.com/openshift/configuration-anomaly-detection/pkg/services/networkverifier"
 
 	"github.com/openshift/configuration-anomaly-detection/pkg/aws"
 	ocm "github.com/openshift/configuration-anomaly-detection/pkg/ocm"
@@ -129,10 +130,10 @@ func run(cmd *cobra.Command, args []string) error {
 	if eventType == pagerdutyIncidentResolved {
 		return evaluateRestoredCluster(chgmClient, externalClusterID)
 	}
-	return evaluateMissingCluster(chgmClient, incidentID, externalClusterID)
+	return evaluateMissingCluster(chgmClient, incidentID, externalClusterID, &customerAwsClient, &ocmClient, &pdClient)
 }
 
-func evaluateMissingCluster(chgmClient chgm.Client, incidentID string, externalClusterID string) error {
+func evaluateMissingCluster(chgmClient chgm.Client, incidentID string, externalClusterID string, awsClient *aws.Client, ocmClient *ocm.Client, pdClient *pagerduty.Client) error {
 	res, err := chgmClient.InvestigateStoppedInstances(externalClusterID)
 	if err != nil {
 		return fmt.Errorf("InvestigateInstances failed on %s: %w", externalClusterID, err)
@@ -141,8 +142,22 @@ func evaluateMissingCluster(chgmClient chgm.Client, incidentID string, externalC
 	fmt.Printf("the investigation returned %#v\n", res)
 
 	if res.UserAuthorized {
+		// // TODO: Run network verifier here
+		networkVerifierClient := networkverifier.Client{
+			Service: networkverifier.Provider{
+				AwsClient: *awsClient,
+				OcmClient: *ocmClient,
+				PdClient:  *pdClient,
+			},
+		}
+		err := networkVerifierClient.RunNetworkVerifier(externalClusterID)
+
+		if err != nil {
+			return err
+		}
+
 		fmt.Println("The node shutdown was not the customer. Should alert SRE")
-		err := chgmClient.EscalateAlert(incidentID, res.String())
+		err = chgmClient.EscalateAlert(incidentID, res.String())
 		if err != nil {
 			return fmt.Errorf("could not escalate the alert %s: %w", incidentID, err)
 		}
@@ -254,7 +269,7 @@ func evaluateRestoredCluster(chgmClient chgm.Client, externalClusterID string) e
 		fmt.Println("Primary has been alerted")
 		return fmt.Errorf("Failed to remove CCAM Limited Support reason from cluster %s: %w", externalClusterID, originalErr)
 	}
-	if removedReasons{
+	if removedReasons {
 		fmt.Println("Removed CCAM Limited Support reason from cluster")
 	} else {
 		fmt.Println("No CCAM Limited Support reasons needed to be removed")
@@ -303,19 +318,19 @@ func evaluateRestoredCluster(chgmClient chgm.Client, externalClusterID string) e
 
 // retryUntilServiceObtained attempts to retrieve the serviceID from the PD payload, retrying until successful
 func retryUntilServiceObtained(chgmClient chgm.Client) string {
-		// Retrieve the service to alert on, retrying until we succeed
-		serviceID, err := chgmClient.ExtractServiceIDFromPayload(payloadPath, pagerduty.RealFileReader{})
-		retries := 1
-		for err != nil {
-			fmt.Printf("Failed to retrieve service from PagerDuty, retrying (attempt %d). Error encountered: %v\n", retries, err)
+	// Retrieve the service to alert on, retrying until we succeed
+	serviceID, err := chgmClient.ExtractServiceIDFromPayload(payloadPath, pagerduty.RealFileReader{})
+	retries := 1
+	for err != nil {
+		fmt.Printf("Failed to retrieve service from PagerDuty, retrying (attempt %d). Error encountered: %v\n", retries, err)
 
-			// Sleep for a time, based on the number of retries (up to 300 seconds)
-			sleepBeforeRetrying(retries, 300)
-			retries++
+		// Sleep for a time, based on the number of retries (up to 300 seconds)
+		sleepBeforeRetrying(retries, 300)
+		retries++
 
-			serviceID, err = chgmClient.ExtractServiceIDFromPayload(payloadPath, pagerduty.RealFileReader{})
-		}
-		return serviceID
+		serviceID, err = chgmClient.ExtractServiceIDFromPayload(payloadPath, pagerduty.RealFileReader{})
+	}
+	return serviceID
 }
 
 // sleepBeforeRetrying sleeps with an exponential backoff based on the current retry, up to the given maximum sleep time.
