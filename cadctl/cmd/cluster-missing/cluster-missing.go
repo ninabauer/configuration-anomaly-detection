@@ -139,10 +139,11 @@ func evaluateMissingCluster(chgmClient chgm.Client, incidentID string, externalC
 		return fmt.Errorf("InvestigateInstances failed on %s: %w", externalClusterID, err)
 	}
 
-	fmt.Printf("the investigation returned %#v\n", res)
+	fmt.Printf("The investigation returned %#v\n", res)
 
 	if res.UserAuthorized {
-		// // TODO: Run network verifier here
+		fmt.Println("The customer has not stopped/terminated any nodes.")
+		// Run network verifier
 		networkVerifierClient := networkverifier.Client{
 			Service: networkverifier.Provider{
 				AwsClient: *customerAwsClient,
@@ -151,13 +152,20 @@ func evaluateMissingCluster(chgmClient chgm.Client, incidentID string, externalC
 			},
 		}
 
-		err := networkVerifierClient.RunNetworkVerifier(externalClusterID)
-
+		verifierResult, failureReason, err := networkVerifierClient.RunNetworkVerifier(externalClusterID)
 		if err != nil {
+			// Forward to on call, set err as note to pagerduty incident
+			fmt.Println("Error running network verifier, esclating to SRE.")
 			return err
 		}
 
-		fmt.Println("The node shutdown was not the customer. Should alert SRE")
+		if verifierResult == networkverifier.VerifierResult.Failure {
+			// Logic for LS etc
+			// add pd note
+			return nil
+		}
+
+		fmt.Println("Network verifier passed. Escalating to SRE")
 		err = chgmClient.EscalateAlert(incidentID, res.String())
 		if err != nil {
 			return fmt.Errorf("could not escalate the alert %s: %w", incidentID, err)
